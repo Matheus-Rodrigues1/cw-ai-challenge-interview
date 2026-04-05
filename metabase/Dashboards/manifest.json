@@ -1,0 +1,186 @@
+{
+  "description": "Metabase dashboard definitions. Queries run against Postgres tables that mirror CSVs under data/; anomaly_results comes from the anomaly worker.",
+  "dashboards": [
+    {
+      "name": "CloudWalk — Anomaly monitoring",
+      "description": "Detector scores, alert levels, and CRITICAL rows (anomaly_results).",
+      "cards": [
+        {
+          "name": "Anomaly score over time",
+          "display": "line",
+          "sql": "SELECT \"timestamp\" AS ts, anomaly_score::double precision AS anomaly_score FROM anomaly_results ORDER BY \"timestamp\" ASC LIMIT 3000",
+          "visualization_settings": {
+            "graph.dimensions": ["ts"],
+            "graph.metrics": ["anomaly_score"],
+            "graph.show_values": false
+          },
+          "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Alerts by level (anomalies only)",
+          "display": "bar",
+          "sql": "SELECT alert_level, COUNT(*)::int AS cnt FROM anomaly_results WHERE is_anomaly = true GROUP BY alert_level ORDER BY cnt DESC",
+          "visualization_settings": {
+            "graph.dimensions": ["alert_level"],
+            "graph.metrics": ["cnt"]
+          },
+          "layout": { "row": 8, "col": 0, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Anomaly score buckets (0–1)",
+          "display": "bar",
+          "sql": "SELECT width_bucket(anomaly_score::numeric, 0::numeric, 1::numeric, 20) AS bucket, COUNT(*)::int AS cnt FROM anomaly_results GROUP BY bucket ORDER BY bucket",
+          "visualization_settings": {
+            "graph.dimensions": ["bucket"],
+            "graph.metrics": ["cnt"]
+          },
+          "layout": { "row": 8, "col": 12, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Recent CRITICAL anomalies",
+          "display": "table",
+          "sql": "SELECT id, \"timestamp\", anomaly_score, triggered_rules, notified_at IS NOT NULL AS notified FROM anomaly_results WHERE alert_level = 'CRITICAL' ORDER BY anomaly_score DESC NULLS LAST LIMIT 40",
+          "visualization_settings": {},
+          "layout": { "row": 16, "col": 0, "size_x": 24, "size_y": 10 }
+        },
+        {
+          "name": "Pending notifications (count)",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS pending FROM anomaly_results WHERE is_anomaly AND notified_at IS NULL",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 0, "size_x": 12, "size_y": 4 }
+        },
+        {
+          "name": "Total anomaly_result rows",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS total FROM anomaly_results",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 12, "size_x": 12, "size_y": 4 }
+        }
+      ]
+    },
+    {
+      "name": "CloudWalk — Transactions & operational data",
+      "description": "Minute transactions, auth codes, checkout, operational intelligence (same data as CSV imports).",
+      "cards": [
+        {
+          "name": "Approved transactions per hour",
+          "display": "line",
+          "sql": "SELECT date_trunc('hour', \"timestamp\") AS hr, SUM(count)::bigint AS total FROM transactions WHERE status = 'approved' GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["total"]
+          },
+          "layout": { "row": 0, "col": 0, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Denied transactions per hour",
+          "display": "line",
+          "sql": "SELECT date_trunc('hour', \"timestamp\") AS hr, SUM(count)::bigint AS total FROM transactions WHERE status = 'denied' GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["total"]
+          },
+          "layout": { "row": 0, "col": 12, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Auth code 51 — hourly count",
+          "display": "line",
+          "sql": "SELECT date_trunc('hour', \"timestamp\") AS hr, SUM(count)::bigint AS total FROM transactions_auth_codes WHERE auth_code::text = '51' GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["total"]
+          },
+          "layout": { "row": 8, "col": 0, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Auth code 59 — hourly count",
+          "display": "line",
+          "sql": "SELECT date_trunc('hour', \"timestamp\") AS hr, SUM(count)::bigint AS total FROM transactions_auth_codes WHERE auth_code::text = '59' GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["total"]
+          },
+          "layout": { "row": 8, "col": 12, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Checkout — today vs yesterday vs averages",
+          "display": "table",
+          "sql": "SELECT time, today, yesterday, same_day_last_week, avg_last_week, avg_last_month FROM checkout ORDER BY time",
+          "visualization_settings": {},
+          "layout": { "row": 16, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Operational intelligence — daily volume (sum)",
+          "display": "line",
+          "sql": "SELECT day::date AS d, SUM(amount_transacted)::double precision AS volume FROM transactions_db GROUP BY 1 ORDER BY 1 DESC LIMIT 90",
+          "visualization_settings": {
+            "graph.dimensions": ["d"],
+            "graph.metrics": ["volume"]
+          },
+          "layout": { "row": 24, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Transactions sample (latest 200 rows)",
+          "display": "table",
+          "sql": "SELECT \"timestamp\", status, count FROM transactions ORDER BY \"timestamp\" DESC LIMIT 200",
+          "visualization_settings": {},
+          "layout": { "row": 32, "col": 0, "size_x": 24, "size_y": 8 }
+        }
+      ]
+    },
+    {
+      "name": "CloudWalk — Minute monitoring",
+      "description": "Denied / failed / reversals per minute with 60m rolling averages. SQL is self-contained (no DB views required).",
+      "cards": [
+        {
+          "name": "Denied per minute + 60m rolling avg",
+          "display": "line",
+          "sql": "WITH pivot AS ( SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'denied' THEN t.count ELSE 0 END) AS denied, SUM(CASE WHEN t.status = 'failed' THEN t.count ELSE 0 END) AS failed, SUM(CASE WHEN t.status = 'reversed' THEN t.count ELSE 0 END) AS reversed, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END) AS backend_reversed FROM transactions t GROUP BY 1 ), roll AS ( SELECT minute_ts, denied, failed, reversed, backend_reversed, AVG(denied::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS denied_rolling_avg_60m, AVG(failed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS failed_rolling_avg_60m, AVG(reversed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS reversed_rolling_avg_60m FROM pivot ) SELECT minute_ts, denied::double precision AS denied, denied_rolling_avg_60m::double precision AS avg_60m FROM roll ORDER BY minute_ts",
+          "visualization_settings": {
+            "graph.dimensions": ["minute_ts"],
+            "graph.metrics": ["denied", "avg_60m"]
+          },
+          "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Failed per minute + 60m rolling avg",
+          "display": "line",
+          "sql": "WITH pivot AS ( SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'denied' THEN t.count ELSE 0 END) AS denied, SUM(CASE WHEN t.status = 'failed' THEN t.count ELSE 0 END) AS failed, SUM(CASE WHEN t.status = 'reversed' THEN t.count ELSE 0 END) AS reversed, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END) AS backend_reversed FROM transactions t GROUP BY 1 ), roll AS ( SELECT minute_ts, denied, failed, reversed, backend_reversed, AVG(denied::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS denied_rolling_avg_60m, AVG(failed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS failed_rolling_avg_60m, AVG(reversed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS reversed_rolling_avg_60m FROM pivot ) SELECT minute_ts, failed::double precision AS failed, failed_rolling_avg_60m::double precision AS avg_60m FROM roll ORDER BY minute_ts",
+          "visualization_settings": {
+            "graph.dimensions": ["minute_ts"],
+            "graph.metrics": ["failed", "avg_60m"]
+          },
+          "layout": { "row": 8, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Reversed per minute + 60m rolling avg",
+          "display": "line",
+          "sql": "WITH pivot AS ( SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'denied' THEN t.count ELSE 0 END) AS denied, SUM(CASE WHEN t.status = 'failed' THEN t.count ELSE 0 END) AS failed, SUM(CASE WHEN t.status = 'reversed' THEN t.count ELSE 0 END) AS reversed, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END) AS backend_reversed FROM transactions t GROUP BY 1 ), roll AS ( SELECT minute_ts, denied, failed, reversed, backend_reversed, AVG(denied::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS denied_rolling_avg_60m, AVG(failed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS failed_rolling_avg_60m, AVG(reversed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS reversed_rolling_avg_60m FROM pivot ) SELECT minute_ts, reversed::double precision AS reversed, reversed_rolling_avg_60m::double precision AS avg_60m FROM roll ORDER BY minute_ts",
+          "visualization_settings": {
+            "graph.dimensions": ["minute_ts"],
+            "graph.metrics": ["reversed", "avg_60m"]
+          },
+          "layout": { "row": 16, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Backend reversed per minute (raw)",
+          "display": "line",
+          "sql": "SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END)::double precision AS backend_reversed FROM transactions t GROUP BY 1 ORDER BY minute_ts",
+          "visualization_settings": {
+            "graph.dimensions": ["minute_ts"],
+            "graph.metrics": ["backend_reversed"]
+          },
+          "layout": { "row": 24, "col": 0, "size_x": 24, "size_y": 7 }
+        },
+        {
+          "name": "Latest minute-level snapshot",
+          "display": "table",
+          "sql": "WITH pivot AS ( SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'denied' THEN t.count ELSE 0 END) AS denied, SUM(CASE WHEN t.status = 'failed' THEN t.count ELSE 0 END) AS failed, SUM(CASE WHEN t.status = 'reversed' THEN t.count ELSE 0 END) AS reversed, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END) AS backend_reversed FROM transactions t GROUP BY 1 ), roll AS ( SELECT minute_ts, denied, failed, reversed, backend_reversed, AVG(denied::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS denied_rolling_avg_60m, AVG(failed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS failed_rolling_avg_60m, AVG(reversed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS reversed_rolling_avg_60m FROM pivot ) SELECT * FROM roll ORDER BY minute_ts DESC LIMIT 60",
+          "visualization_settings": {},
+          "layout": { "row": 31, "col": 0, "size_x": 24, "size_y": 8 }
+        }
+      ]
+    }
+  ]
+}

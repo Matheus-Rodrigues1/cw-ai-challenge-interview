@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Lean dependency set — no API / web framework needed
+COPY requirements.ai_ml.txt .
+RUN pip install --no-cache-dir -r requirements.ai_ml.txt
+
+COPY src/ ./src/
+
+ENV PYTHONPATH=/app/src
+
+CMD ["python", "src/workers/ai_ml_worker.py"]

@@ -1,0 +1,70 @@
+# ── Environment / Secrets ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+terraform/terraform.tfvars
+
+# ── Python ───────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ── Python tooling ───────────────────────────────────────────────────
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# ── IDE / Editors ────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS files ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Databases ────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+
+# ── Archives ─────────────────────────────────────────────────────────
+*.zip
+*.tar.gz
+*.rar
+
+# ── Keys / Certificates ─────────────────────────────────────────────
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+
+# ── Node (future-proof) ─────────────────────────────────────────────
+node_modules/
+
+# ── Terraform (also has its own terraform/.gitignore) ────────────────
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+crash.log
+
+# ── Data files (large CSVs — use DVC or provide separately) ─────────
+data/*.csv
+
+# ── Generated / build artifacts ──────────────────────────────────────
+docs/architecture_overview.pdf

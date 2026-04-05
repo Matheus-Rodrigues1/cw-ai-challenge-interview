@@ -1,0 +1,95 @@
+{
+  "description": "AI/ML anomaly detection dashboard — independent of rule-based detection. Powered by the worker-ai-ml container (Isolation Forest + Local Outlier Factor ensemble). Thresholds are data-driven, not rule-based.",
+  "dashboards": [
+    {
+      "name": "Anomalies with AI Detection",
+      "description": "Pure ML anomaly detection via Isolation Forest + Local Outlier Factor ensemble. All thresholds (WARNING/CRITICAL) are derived from the training-set score distribution (P75/P90), with no hardcoded business rules.",
+      "cards": [
+        {
+          "name": "AI Ensemble Score Over Time",
+          "display": "line",
+          "sql": "SELECT data_timestamp AS ts, ensemble_score::double precision AS ensemble_score FROM ai_anomaly_results ORDER BY data_timestamp ASC LIMIT 5000",
+          "visualization_settings": {
+            "graph.dimensions": ["ts"],
+            "graph.metrics": ["ensemble_score"],
+            "graph.show_values": false,
+            "graph.y_axis.title_text": "Ensemble Score (0–1)",
+            "graph.x_axis.title_text": "Timestamp"
+          },
+          "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Alert Level Distribution (AI)",
+          "display": "bar",
+          "sql": "SELECT alert_level, COUNT(*)::int AS total FROM ai_anomaly_results GROUP BY alert_level ORDER BY total DESC",
+          "visualization_settings": {
+            "graph.dimensions": ["alert_level"],
+            "graph.metrics": ["total"],
+            "graph.x_axis.title_text": "Alert Level",
+            "graph.y_axis.title_text": "Count"
+          },
+          "layout": { "row": 8, "col": 0, "size_x": 8, "size_y": 8 }
+        },
+        {
+          "name": "Anomalies by Hour of Day (AI)",
+          "display": "bar",
+          "sql": "SELECT EXTRACT(HOUR FROM data_timestamp)::int AS hour_of_day, COUNT(*)::int AS anomaly_count FROM ai_anomaly_results WHERE is_anomaly = true GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hour_of_day"],
+            "graph.metrics": ["anomaly_count"],
+            "graph.x_axis.title_text": "Hour of Day",
+            "graph.y_axis.title_text": "Anomaly Count"
+          },
+          "layout": { "row": 8, "col": 8, "size_x": 8, "size_y": 8 }
+        },
+        {
+          "name": "Ensemble Score Distribution (AI)",
+          "display": "bar",
+          "sql": "SELECT width_bucket(ensemble_score::numeric, 0::numeric, 1::numeric, 20) AS bucket, COUNT(*)::int AS cnt FROM ai_anomaly_results GROUP BY bucket ORDER BY bucket",
+          "visualization_settings": {
+            "graph.dimensions": ["bucket"],
+            "graph.metrics": ["cnt"],
+            "graph.x_axis.title_text": "Score Bucket (1=lowest, 20=highest)",
+            "graph.y_axis.title_text": "Row Count"
+          },
+          "layout": { "row": 8, "col": 16, "size_x": 8, "size_y": 8 }
+        },
+        {
+          "name": "Recent AI-Detected Anomalies",
+          "display": "table",
+          "sql": "SELECT id, data_timestamp, round(ensemble_score::numeric, 3) AS ensemble_score, round(if_score::numeric, 3) AS if_score, round(lof_score::numeric, 3) AS lof_score, alert_level, model_version, feature_snapshot FROM ai_anomaly_results WHERE is_anomaly = true ORDER BY data_timestamp DESC LIMIT 50",
+          "visualization_settings": {},
+          "layout": { "row": 16, "col": 0, "size_x": 24, "size_y": 10 }
+        },
+        {
+          "name": "Total Rows Evaluated (AI)",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS total_evaluated FROM ai_anomaly_results",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 0, "size_x": 6, "size_y": 4 }
+        },
+        {
+          "name": "Total Anomalies Detected (AI)",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS total_anomalies FROM ai_anomaly_results WHERE is_anomaly = true",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 6, "size_x": 6, "size_y": 4 }
+        },
+        {
+          "name": "Critical Anomalies (AI)",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS critical_count FROM ai_anomaly_results WHERE alert_level = 'CRITICAL'",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 12, "size_x": 6, "size_y": 4 }
+        },
+        {
+          "name": "Model Training History",
+          "display": "table",
+          "sql": "SELECT model_version, num_training_samples, COUNT(*)::int AS rows_evaluated, round(AVG(ensemble_score)::numeric, 4) AS avg_score, round(MAX(ensemble_score)::numeric, 4) AS max_score, MAX(detected_at) AS last_run FROM ai_anomaly_results GROUP BY model_version, num_training_samples ORDER BY last_run DESC LIMIT 10",
+          "visualization_settings": {},
+          "layout": { "row": 26, "col": 18, "size_x": 6, "size_y": 4 }
+        }
+      ]
+    }
+  ]
+}

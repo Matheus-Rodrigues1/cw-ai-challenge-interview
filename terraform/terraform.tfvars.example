@@ -1,0 +1,52 @@
+# =============================================================================
+# CloudWalk Monitoring — Terraform Variables
+# Copy this file to terraform.tfvars and fill in the values.
+# =============================================================================
+
+# General
+aws_region   = "us-east-1"
+project_name = "cloudwalk-monitoring"
+environment  = "prod"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+
+# Database (RDS PostgreSQL)
+db_name              = "cloudwalk_transactions"
+db_username          = "admin"
+db_password          = "CHANGE_ME_strong_password_here"
+db_instance_class    = "db.t3.micro"     # db.t3.small for production
+db_allocated_storage = 20
+db_multi_az          = false             # true for production HA
+
+# ECS — API
+api_cpu           = 512     # 0.5 vCPU
+api_memory        = 1024    # 1 GB
+api_desired_count = 2
+
+# ECS — Workers
+worker_cpu    = 512
+worker_memory = 1024
+
+# ECS — Metabase
+metabase_cpu    = 1024   # 1 vCPU
+metabase_memory = 2048   # 2 GB
+
+# Alerting — SMTP (uncomment and configure one provider)
+# smtp_host      = "smtp.sendgrid.net"
+# smtp_port      = "587"
+# smtp_ssl       = ""
+# smtp_user      = "apikey"
+# smtp_pass      = "SG.xxxxxxxxxxxx"
+# alert_email_to   = "your-inbox@gmail.com"
+# alert_email_from = "monitoring@cloudwalk.io"
+
+# Alerting — Slack (optional)
+# slack_webhook_url = "https://hooks.slack.com/services/..."
+
+# Worker tuning
+anomaly_run_interval     = 60
+monitoring_poll_interval = 30
+min_score_to_notify      = "0.5"
+critical_channels        = "console,email"
+warning_channels         = "console,email"

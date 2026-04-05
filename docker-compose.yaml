@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database
+  postgres_db:
+    image: postgres:15
+    container_name: postgres_container
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-cloudwalk_transactions}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - "./data:/csv_data"
+      - "./docker-init:/docker-entrypoint-initdb.d"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-cloudwalk_transactions}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin_container
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres_db
+
+  # Metabase — Dashboards
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase_container
+    restart: always
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase_appdb
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER:-admin}
+      MB_DB_PASS: ${POSTGRES_PASSWORD:-admin}
+      MB_DB_HOST: postgres_db
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  # API — FastAPI (query + notification endpoints)
+  monitoring_api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: monitoring_api
+    restart: always
+    environment:
+      DB_HOST: postgres_db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-cloudwalk_transactions}
+      DB_USER: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SSL: ${SMTP_SSL:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-monitoring@cloudwalk.io}
+      ALERT_ON_EVALUATE: ${ALERT_ON_EVALUATE:-false}
+      # Set SMTP_DEBUG=true temporarily to print SMTP transcript in API logs
+      SMTP_DEBUG: ${SMTP_DEBUG:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  # Worker — anomaly detection (writes results to Postgres)
+  anomaly_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: anomaly_worker
+    restart: always
+    environment:
+      DB_HOST: postgres_db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-cloudwalk_transactions}
+      DB_USER: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      RUN_INTERVAL_SECONDS: 60
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  # Worker — AI/ML anomaly detection (Isolation Forest + LOF ensemble, no hardcoded rules)
+  worker-ai-ml:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai_ml
+    container_name: worker-ai-ml
+    restart: always
+    environment:
+      DB_HOST: postgres_db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-cloudwalk_transactions}
+      DB_USER: ${POSTGRES_USER:-admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      RUN_INTERVAL_SECONDS: 120          # evaluate new minutes every 2 min
+      RETRAIN_EVERY_N_CYCLES: 5          # retrain model every 5 cycles (~10 min)
+      CONTAMINATION: 0.05                # expected anomaly fraction fed to IF + LOF
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  # Worker — monitoring (polls API, validates anomalies, sends notifications)
+  monitoring_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: monitoring_worker
+    restart: always
+    environment:
+      API_BASE_URL: http://monitoring_api:8000
+      POLL_INTERVAL_SECONDS: 30
+      MIN_SCORE_TO_NOTIFY: 0.5
+      CRITICAL_CHANNELS: console,email
+      WARNING_CHANNELS: console,email
+    command: ["python", "src/workers/monitoring_worker.py"]
+    depends_on:
+      - monitoring_api
+      - anomaly_worker
+
+volumes:
+  postgres_data:
