@@ -67,4 +67,3 @@ crash.log
 data/*.csv
 
 # ── Generated / build artifacts ──────────────────────────────────────
-docs/architecture_overview.pdf
