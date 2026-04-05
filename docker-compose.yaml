@@ -89,6 +89,7 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: anomaly_worker
+    command: ["python", "src/workers/anomaly_worker.py"]
     restart: always
     environment:
       DB_HOST: postgres_db
@@ -101,12 +102,13 @@ services:
       postgres_db:
         condition: service_healthy
 
-  # Worker — AI/ML anomaly detection (Isolation Forest + LOF ensemble, no hardcoded rules)
-  worker-ai-ml:
+  # Worker — AI/ML anomaly detection (Isolation Forest + LOF + OCSVM + Autoencoder ensemble)
+  worker_ai_ml:
     build:
       context: .
-      dockerfile: Dockerfile.ai_ml
-    container_name: worker-ai-ml
+      dockerfile: Dockerfile.worker
+    container_name: worker_ai_ml
+    command: ["python", "src/workers/ai_ml_worker.py"]
     restart: always
     environment:
       DB_HOST: postgres_db
@@ -114,9 +116,9 @@ services:
       DB_NAME: ${POSTGRES_DB:-cloudwalk_transactions}
       DB_USER: ${POSTGRES_USER:-admin}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-admin}
-      RUN_INTERVAL_SECONDS: 120          # evaluate new minutes every 2 min
-      RETRAIN_EVERY_N_CYCLES: 5          # retrain model every 5 cycles (~10 min)
-      CONTAMINATION: 0.05                # expected anomaly fraction fed to IF + LOF
+      RUN_INTERVAL_SECONDS: 120
+      RETRAIN_EVERY_N_CYCLES: 5
+      CONTAMINATION: 0.05
     depends_on:
       postgres_db:
         condition: service_healthy

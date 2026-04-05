@@ -294,12 +294,14 @@ def build_pdf() -> str:
         "Notification loop (default 30s). Polls GET /anomalies/unprocessed, "
         "selects channels (CRITICAL_CHANNELS or WARNING_CHANNELS), and calls "
         "POST /notifications/send per anomaly.")
-    pdf.service_block("worker-ai-ml", None,
+    pdf.service_block("worker_ai_ml", None,
         "Pure ML detection loop (default 120s). Runs an Isolation Forest + "
-        "Local Outlier Factor ensemble on all available data. Retrains every "
+        "LOF ensemble on all available data. Retrains every "
         "RETRAIN_EVERY_N_CYCLES cycles. Thresholds (WARNING/CRITICAL) are "
         "computed as P75/P90 of training-set ensemble scores -- no hardcoded values. "
-        "Results go to ai_anomaly_results, independent of anomaly_results.",
+        "Results go to ai_anomaly_results. Auto-sync: every cycle cross-references "
+        "anomaly_results to detect and fill gaps, ensuring the AI dashboard stays "
+        "in lock-step with rule-based detection and manual inserts.",
         teal=True)
 
     # ── 3. Rule-Based Detection Model ────────────────────────────────────
@@ -458,7 +460,7 @@ def build_pdf() -> str:
     )
 
     # ── 5. AI/ML Detection Model ─────────────────────────────────────────
-    pdf.section_heading("5", "AI/ML Detection Model (worker-ai-ml)", teal=True)
+    pdf.section_heading("5", "AI/ML Detection Model (worker_ai_ml)", teal=True)
     pdf.sub_heading("EnsembleAnomalyDetector  (src/workers/ai_ml_worker.py)", teal=True)
     pdf.body_text(
         "Runs entirely independently of the rule-based pipeline. No business rules "
@@ -506,6 +508,17 @@ def build_pdf() -> str:
         "so the model continuously adapts to the observed data pattern."
     )
 
+    pdf.sub_heading("Auto-sync with rule-based pipeline", teal=True)
+    pdf.body_text(
+        "Every cycle the AI worker cross-references anomaly_results with "
+        "ai_anomaly_results via a LEFT JOIN to detect timestamps present in one "
+        "but missing from the other. For each gap: if feature data is available in "
+        "monitoring_minute_pivot, the full AI ensemble runs; otherwise the rule-based "
+        "result is mirrored as a fallback. This guarantees the AI dashboard stays "
+        "perfectly synchronised with the rule-based pipeline and manual inserts "
+        "without operator intervention."
+    )
+
     pdf.sub_heading("Retraining schedule", teal=True)
     pdf.table(
         ["Variable", "Default", "Effect"],
@@ -531,9 +544,11 @@ def build_pdf() -> str:
         "INSERTs into anomaly_results -> sleeps 60s -> repeats."
     )
     pdf.body_text(
-        "2b) worker-ai-ml starts -> reads transactions + auth_codes, builds 21-feature "
+        "2b) worker_ai_ml starts -> reads transactions + auth_codes, builds 21-feature "
         "matrix -> fits/retrains EnsembleAnomalyDetector (IF + LOF) -> "
         "evaluates new minutes -> INSERTs into ai_anomaly_results -> "
+        "runs auto-sync (LEFT JOIN anomaly_results vs ai_anomaly_results to fill "
+        "any gaps from manual inserts or timing differences) -> "
         "sleeps 120s -> repeats (retrains every 5 cycles)."
     )
     pdf.body_text(
@@ -584,9 +599,9 @@ def build_pdf() -> str:
     pdf.table(
         ["Variable", "Service", "Default"],
         [
-            ["RUN_INTERVAL_SECONDS",    "worker-ai-ml", "120"],
-            ["RETRAIN_EVERY_N_CYCLES",  "worker-ai-ml", "5"],
-            ["CONTAMINATION",           "worker-ai-ml", "0.05"],
+            ["RUN_INTERVAL_SECONDS",    "worker_ai_ml", "120"],
+            ["RETRAIN_EVERY_N_CYCLES",  "worker_ai_ml", "5"],
+            ["CONTAMINATION",           "worker_ai_ml", "0.05"],
         ],
         col_widths=[w * 0.36, w * 0.32, w * 0.32],
         teal_header=True,
@@ -642,28 +657,28 @@ def build_pdf() -> str:
     # ── 9. Metabase Dashboards ─────────────────────────────────────────────
     pdf.section_heading("9", "Metabase Dashboards (4 total)")
     pdf.body_text(
-        "Rule-based dashboards are defined in metabase/Dashboards/manifest.json. "
-        "The AI dashboard is in metabase/Dashboards/ai_manifest.json. "
-        "Both upload scripts are idempotent: they delete any existing dashboard with "
-        "the same name (and its cards) before recreating, preventing duplicates."
+        "All dashboards are defined in metabase/Dashboards/manifest.json. "
+        "The upload script (upload_dashboards.py) is idempotent: it deletes any existing "
+        "dashboard with the same name (and its cards) before recreating, preventing duplicates. "
+        "Use --dashboard to update a single dashboard in isolation."
     )
     pdf.table(
         ["Dashboard", "Source table", "Contents"],
         [
-            ["Anomaly monitoring",
+            ["CloudWalk -- Anomaly monitoring",
              "anomaly_results",
              "Score timeline, alert level distribution, CRITICAL table, pending count"],
-            ["Transactions & operational data",
+            ["CloudWalk -- Transactions & operational data",
              "transactions / auth_codes / checkout / transactions_db",
              "Approved/denied per hour, auth codes 51/59, checkout comparison, OpInt volume"],
-            ["Minute monitoring",
+            ["CloudWalk -- Minute monitoring",
              "monitoring_minute_with_rollups",
              "Denied/failed/reversed per minute + 60-min rolling averages"],
-            ["Anomalies with AI Detection  (NEW)",
-             "ai_anomaly_results",
-             "AI ensemble score timeline, alert distribution, anomalies by hour, "
-             "score histogram, recent detections with IF/LOF/ensemble scores, "
-             "model training history"],
+            ["CloudWalk -- Anomalies with AI Detection",
+             "ai_anomaly_results + anomaly_results",
+             "AI score timeline, per-model breakdowns (IF/LOF/OCSVM/Autoencoder), "
+             "AI vs rule-based benchmarking, alert distribution, CRITICAL table, "
+             "hourly anomaly counts, worker health check (data lag, pending CRITICALs)"],
         ],
         col_widths=[w * 0.28, w * 0.27, w * 0.45],
     )
@@ -675,7 +690,7 @@ def build_pdf() -> str:
         [
             ["1", "Install Python 3.11+ and PostgreSQL 15"],
             ["2", "Create database cloudwalk_transactions, run sql/init.sql"],
-            ["3", "pip install -r requirements.txt  &&  pip install -r requirements.ai_ml.txt"],
+            ["3", "pip install -r requirements.txt"],
             ["4", "Export DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD"],
             ["5", "PYTHONPATH=src uvicorn api.main:app --host 0.0.0.0 --port 8000"],
             ["6", "PYTHONPATH=src python src/workers/anomaly_worker.py"],

@@ -66,25 +66,23 @@ CREATE TABLE IF NOT EXISTS notification_log (
 
 CREATE INDEX IF NOT EXISTS idx_notification_log_anomaly ON notification_log(anomaly_id);
 
--- AI/ML detection results (populated by worker-ai-ml — independent of rule-based anomaly_results)
+-- AI/ML detection results (populated by worker-ai-ml — syncs with rule-based anomaly_results)
 CREATE TABLE IF NOT EXISTS ai_anomaly_results (
     id                   SERIAL PRIMARY KEY,
-    detected_at          TIMESTAMP DEFAULT NOW(),
-    data_timestamp       TIMESTAMP,
-    source               VARCHAR(50) DEFAULT 'transactions',
-    feature_snapshot     JSONB,
-    if_score             DOUBLE PRECISION,
-    lof_score            DOUBLE PRECISION,
-    ensemble_score       DOUBLE PRECISION,
-    is_anomaly           BOOLEAN     NOT NULL,
-    alert_level          VARCHAR(20) NOT NULL,
-    model_version        VARCHAR(50),
-    num_training_samples INTEGER
+    evaluated_at         TIMESTAMP DEFAULT NOW(),
+    "timestamp"          TIMESTAMP NOT NULL,
+    is_anomaly           BOOLEAN   NOT NULL,
+    anomaly_score        NUMERIC(6,3) NOT NULL,
+    alert_level          VARCHAR(10)  NOT NULL,
+    model_scores         JSONB,
+    feature_importance   JSONB,
+    ensemble_method      VARCHAR(30) DEFAULT 'weighted_average',
+    counts               JSONB,
+    notified_at          TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_ai_ts    ON ai_anomaly_results(data_timestamp);
-CREATE INDEX IF NOT EXISTS idx_ai_level ON ai_anomaly_results(alert_level);
-CREATE INDEX IF NOT EXISTS idx_ai_det   ON ai_anomaly_results(detected_at);
+CREATE INDEX IF NOT EXISTS idx_ai_anomaly_timestamp ON ai_anomaly_results("timestamp");
+CREATE INDEX IF NOT EXISTS idx_ai_anomaly_level     ON ai_anomaly_results(alert_level);
 
 -- Truncate load tables before import
 TRUNCATE checkout, transactions_db, transactions, transactions_auth_codes;

@@ -4,6 +4,7 @@
     {
       "name": "CloudWalk — Anomaly monitoring",
       "description": "Detector scores, alert levels, and CRITICAL rows (anomaly_results).",
+      "cache_ttl": 1,
       "cards": [
         {
           "name": "Anomaly score over time",
@@ -61,7 +62,8 @@
     },
     {
       "name": "CloudWalk — Transactions & operational data",
-      "description": "Minute transactions, auth codes, checkout, operational intelligence (same data as CSV imports).",
+      "legacy_names": ["cloudwalk-transactions-operational-data"],
+      "description": "Rule-based dashboard — transactions per hour, auth codes, checkout comparisons, and operational intelligence volumes (same data as CSV imports).",
       "cards": [
         {
           "name": "Approved transactions per hour",
@@ -179,6 +181,145 @@
           "sql": "WITH pivot AS ( SELECT date_trunc('minute', t.\"timestamp\") AS minute_ts, SUM(CASE WHEN t.status = 'denied' THEN t.count ELSE 0 END) AS denied, SUM(CASE WHEN t.status = 'failed' THEN t.count ELSE 0 END) AS failed, SUM(CASE WHEN t.status = 'reversed' THEN t.count ELSE 0 END) AS reversed, SUM(CASE WHEN t.status = 'backend_reversed' THEN t.count ELSE 0 END) AS backend_reversed FROM transactions t GROUP BY 1 ), roll AS ( SELECT minute_ts, denied, failed, reversed, backend_reversed, AVG(denied::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS denied_rolling_avg_60m, AVG(failed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS failed_rolling_avg_60m, AVG(reversed::numeric) OVER (ORDER BY minute_ts ROWS BETWEEN 59 PRECEDING AND CURRENT ROW) AS reversed_rolling_avg_60m FROM pivot ) SELECT * FROM roll ORDER BY minute_ts DESC LIMIT 60",
           "visualization_settings": {},
           "layout": { "row": 31, "col": 0, "size_x": 24, "size_y": 8 }
+        }
+      ]
+    },
+    {
+      "name": "CloudWalk — Anomalies with AI Detection",
+      "legacy_names": ["cloudwalk-anomalies-with-ai-detection", "Anomalies with AI Detection"],
+      "description": "AI/ML anomaly detection dashboard with multi-model ensemble (Isolation Forest, LOF, OCSVM, Autoencoder). Includes score timelines, per-model breakdowns, and AI vs rule-based benchmarking.",
+      "cache_ttl": 1,
+      "cards": [
+        {
+          "name": "AI Anomaly Score Timeline",
+          "display": "line",
+          "sql": "SELECT \"timestamp\" AS ts, anomaly_score::double precision AS score FROM ai_anomaly_results ORDER BY \"timestamp\" ASC LIMIT 5000",
+          "visualization_settings": {
+            "graph.dimensions": ["ts"],
+            "graph.metrics": ["score"],
+            "graph.show_values": false,
+            "graph.y_axis.title_text": "Anomaly Score",
+            "graph.x_axis.title_text": "Timestamp"
+          },
+          "layout": { "row": 0, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Total AI Anomalies",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS total FROM ai_anomaly_results WHERE is_anomaly = true",
+          "visualization_settings": {},
+          "layout": { "row": 8, "col": 0, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "Total Minutes Evaluated",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS total FROM ai_anomaly_results",
+          "visualization_settings": {},
+          "layout": { "row": 8, "col": 8, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "Anomaly Rate (%)",
+          "display": "scalar",
+          "sql": "SELECT ROUND(100.0 * SUM(CASE WHEN is_anomaly THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(*), 0), 2) AS pct FROM ai_anomaly_results",
+          "visualization_settings": {},
+          "layout": { "row": 8, "col": 16, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "AI Alert Level Distribution",
+          "display": "bar",
+          "sql": "SELECT alert_level, COUNT(*)::int AS cnt FROM ai_anomaly_results GROUP BY alert_level ORDER BY cnt DESC",
+          "visualization_settings": {
+            "graph.dimensions": ["alert_level"],
+            "graph.metrics": ["cnt"],
+            "graph.x_axis.title_text": "Alert Level",
+            "graph.y_axis.title_text": "Count"
+          },
+          "layout": { "row": 12, "col": 0, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Average Score by Model",
+          "display": "bar",
+          "sql": "SELECT 'Isolation Forest' AS model, ROUND(AVG((model_scores->>'isolation_forest')::numeric), 4) AS avg_score FROM ai_anomaly_results WHERE is_anomaly = true UNION ALL SELECT 'LOF', ROUND(AVG((model_scores->>'lof')::numeric), 4) FROM ai_anomaly_results WHERE is_anomaly = true UNION ALL SELECT 'One-Class SVM', ROUND(AVG((model_scores->>'ocsvm')::numeric), 4) FROM ai_anomaly_results WHERE is_anomaly = true UNION ALL SELECT 'Autoencoder', ROUND(AVG((model_scores->>'autoencoder')::numeric), 4) FROM ai_anomaly_results WHERE is_anomaly = true",
+          "visualization_settings": {
+            "graph.dimensions": ["model"],
+            "graph.metrics": ["avg_score"],
+            "graph.x_axis.title_text": "Model",
+            "graph.y_axis.title_text": "Average Score"
+          },
+          "layout": { "row": 12, "col": 12, "size_x": 12, "size_y": 8 }
+        },
+        {
+          "name": "Per-Model Scores Over Time",
+          "display": "line",
+          "sql": "SELECT \"timestamp\" AS ts, (model_scores->>'isolation_forest')::double precision AS iso_forest, (model_scores->>'lof')::double precision AS lof, (model_scores->>'ocsvm')::double precision AS ocsvm, (model_scores->>'autoencoder')::double precision AS autoencoder FROM ai_anomaly_results WHERE is_anomaly = true ORDER BY \"timestamp\" ASC LIMIT 2000",
+          "visualization_settings": {
+            "graph.dimensions": ["ts"],
+            "graph.metrics": ["iso_forest", "lof", "ocsvm", "autoencoder"],
+            "graph.show_values": false,
+            "graph.y_axis.title_text": "Model Score",
+            "graph.x_axis.title_text": "Timestamp"
+          },
+          "layout": { "row": 20, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "AI vs Rule-Based: Score Comparison",
+          "display": "line",
+          "sql": "WITH ai AS ( SELECT date_trunc('hour', \"timestamp\") AS hr, AVG(anomaly_score)::double precision AS ai_score FROM ai_anomaly_results GROUP BY 1 ), rules AS ( SELECT date_trunc('hour', \"timestamp\") AS hr, AVG(anomaly_score)::double precision AS rule_score FROM anomaly_results GROUP BY 1 ) SELECT COALESCE(ai.hr, rules.hr) AS hr, ai.ai_score, rules.rule_score FROM ai FULL OUTER JOIN rules ON ai.hr = rules.hr ORDER BY hr LIMIT 500",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["ai_score", "rule_score"],
+            "graph.show_values": false,
+            "graph.y_axis.title_text": "Average Score",
+            "graph.x_axis.title_text": "Hour"
+          },
+          "layout": { "row": 28, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "Top CRITICAL Anomalies (AI)",
+          "display": "table",
+          "sql": "SELECT id, \"timestamp\", anomaly_score, alert_level, (model_scores->>'isolation_forest') AS iso_forest, (model_scores->>'lof') AS lof, (model_scores->>'ocsvm') AS ocsvm, (model_scores->>'autoencoder') AS autoencoder, counts FROM ai_anomaly_results WHERE alert_level = 'CRITICAL' ORDER BY anomaly_score DESC LIMIT 50",
+          "visualization_settings": {},
+          "layout": { "row": 36, "col": 0, "size_x": 24, "size_y": 10 }
+        },
+        {
+          "name": "Hourly Anomaly Count (AI)",
+          "display": "bar",
+          "sql": "SELECT date_trunc('hour', \"timestamp\") AS hr, SUM(CASE WHEN alert_level = 'CRITICAL' THEN 1 ELSE 0 END)::int AS critical, SUM(CASE WHEN alert_level = 'WARNING' THEN 1 ELSE 0 END)::int AS warning FROM ai_anomaly_results WHERE is_anomaly = true GROUP BY 1 ORDER BY 1",
+          "visualization_settings": {
+            "graph.dimensions": ["hr"],
+            "graph.metrics": ["critical", "warning"],
+            "graph.x_axis.title_text": "Hour",
+            "graph.y_axis.title_text": "Count"
+          },
+          "layout": { "row": 46, "col": 0, "size_x": 24, "size_y": 8 }
+        },
+        {
+          "name": "AI Worker — Last Analysis",
+          "display": "scalar",
+          "sql": "SELECT MAX(\"timestamp\") AS last_analysis FROM ai_anomaly_results",
+          "visualization_settings": {},
+          "layout": { "row": 54, "col": 0, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "AI Data Lag (minutes behind rule-based)",
+          "display": "scalar",
+          "sql": "SELECT ROUND(EXTRACT(EPOCH FROM ((SELECT MAX(\"timestamp\") FROM anomaly_results) - (SELECT MAX(\"timestamp\") FROM ai_anomaly_results))) / 60)::int AS lag_minutes",
+          "visualization_settings": {},
+          "layout": { "row": 54, "col": 8, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "Rule-Based CRITICALs Pending AI Review",
+          "display": "scalar",
+          "sql": "SELECT COUNT(*)::int AS pending FROM anomaly_results WHERE alert_level = 'CRITICAL' AND \"timestamp\" > (SELECT COALESCE(MAX(\"timestamp\"), '1970-01-01'::timestamp) FROM ai_anomaly_results)",
+          "visualization_settings": {},
+          "layout": { "row": 54, "col": 16, "size_x": 8, "size_y": 4 }
+        },
+        {
+          "name": "Rule-Based CRITICALs Not Yet Processed by AI",
+          "display": "table",
+          "sql": "SELECT id, \"timestamp\", anomaly_score, alert_level, triggered_rules FROM anomaly_results WHERE alert_level = 'CRITICAL' AND \"timestamp\" > (SELECT COALESCE(MAX(\"timestamp\"), '1970-01-01'::timestamp) FROM ai_anomaly_results) ORDER BY \"timestamp\" DESC LIMIT 50",
+          "visualization_settings": {},
+          "layout": { "row": 58, "col": 0, "size_x": 24, "size_y": 10 }
         }
       ]
     }

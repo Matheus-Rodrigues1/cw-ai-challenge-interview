@@ -25,7 +25,7 @@ flowchart TB
 
   subgraph detect ["3 - Anomaly detection"]
     AW["anomaly_worker (every 60s)<br>HybridAnomalyDetector<br>Z-Score 60% + Isolation Forest 40%<br>+ mandatory rules"]
-    AIML["worker-ai-ml (every 120s)<br>EnsembleAnomalyDetector<br>Isolation Forest + LOF<br>data-driven thresholds — no rules"]
+    AIML["worker_ai_ml (every 120s)<br>EnsembleAnomalyDetector<br>Isolation Forest + LOF + OCSVM + Autoencoder<br>data-driven thresholds — no rules"]
   end
 
   subgraph api ["4 - FastAPI :8000"]
@@ -60,6 +60,7 @@ flowchart TB
   TX --> AIML
   AUTH --> AIML
   AIML -->|INSERT| AIAR
+  AR -.->|auto-sync| AIML
   AR --> UNPR
   MW -->|HTTP| UNPR
   MW -->|HTTP| NOTIF
@@ -129,7 +130,7 @@ This starts **7 containers**:
 | `monitoring_api` | 8000 | FastAPI — evaluation endpoint + notification dispatch |
 | `anomaly_worker` | -- | Rule-based hybrid detection every 60s, writes `anomaly_results` |
 | `monitoring_worker` | -- | Polls unprocessed anomalies every 30s, sends alerts |
-| `worker-ai-ml` | -- | Pure ML ensemble (IF + LOF) every 120s, writes `ai_anomaly_results` |
+| `worker_ai_ml` | -- | Pure ML ensemble (IF + LOF + OCSVM + Autoencoder) every 120s, writes `ai_anomaly_results` |
 
 ### Step 5 - Verify
 
@@ -151,14 +152,14 @@ curl -X POST http://localhost:8000/api/v1/transactions/evaluate \
 After completing Metabase first-time setup at http://localhost:3000 and adding the `cloudwalk_transactions` database (Admin > Databases > Add database, host = `postgres_db`, port 5432, user/pass = `admin`/`admin`):
 
 ```bash
-# Upload the 3 rule-based dashboards
+# Upload all dashboards (rule-based + AI)
 METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_dashboards.py
 
-# Upload the AI Detection dashboard (independent)
-METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_ai_dashboard.py
+# Upload only the AI Detection dashboard (other dashboards are untouched)
+METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_dashboards.py --dashboard "CloudWalk — Anomalies with AI Detection"
 ```
 
-Both scripts are **idempotent** — they detect and delete any existing dashboard with the same name (including its cards) before recreating it, so re-running never creates duplicates.
+The script is **idempotent** — it detects and deletes any existing dashboard with the same name (including its cards) before recreating it, so re-running never creates duplicates. Use `--dashboard` for isolated updates.
 
 ### Step 7 - Test the full alert pipeline
 
@@ -213,9 +214,9 @@ Docker Compose reads a **`.env`** file in the project root. Copy `.env.example` 
 
 | Variable | Service | Default | Purpose |
 |----------|---------|---------|---------|
-| `RUN_INTERVAL_SECONDS` | `worker-ai-ml` | `120` | Seconds between ML detection cycles |
-| `RETRAIN_EVERY_N_CYCLES` | `worker-ai-ml` | `5` | Retrain model every N cycles (~10 min) |
-| `CONTAMINATION` | `worker-ai-ml` | `0.05` | Expected anomaly fraction fed to IF + LOF |
+| `RUN_INTERVAL_SECONDS` | `worker_ai_ml` | `120` | Seconds between ML detection cycles |
+| `RETRAIN_EVERY_N_CYCLES` | `worker_ai_ml` | `5` | Retrain model every N cycles (~10 min) |
+| `CONTAMINATION` | `worker_ai_ml` | `0.05` | Expected anomaly fraction fed to IF + LOF + OCSVM + Autoencoder |
 
 ### Model tuning (optional, pass to `monitoring_api` environment)
 
@@ -393,7 +394,7 @@ Set `SLACK_WEBHOOK_URL` to enable. The Slack message includes a colour-coded att
 
 ---
 
-### Pure ML: EnsembleAnomalyDetector (`worker-ai-ml`)
+### Pure ML: EnsembleAnomalyDetector (`worker_ai_ml`)
 
 Runs entirely independently — no hardcoded thresholds, no business rules:
 
@@ -406,6 +407,8 @@ Runs entirely independently — no hardcoded thresholds, no business rules:
 Features include raw counts, rate features (denial\_rate, failure\_rate, reversal\_rate), **cyclical time encoding** (hour/day-of-week as sin/cos pairs), 30-min rolling stats, and auth-code diversity metrics.
 
 **Adaptive thresholds** — WARNING and CRITICAL boundaries are the P75 and P90 of ensemble scores computed on the training set itself, and are recalculated on every retrain. Results are written to `ai_anomaly_results`.
+
+**Auto-sync with rule-based pipeline** — every cycle the AI worker cross-references `anomaly_results` (rule-based) with `ai_anomaly_results` via a `LEFT JOIN` to detect timestamps present in one but missing from the other. For each gap, if feature data is available in `monitoring_minute_pivot` it runs the full AI ensemble; otherwise it mirrors the rule-based result as a fallback. This guarantees the AI dashboard stays in lock-step with manual inserts and the rule-based pipeline without any operator intervention.
 
 ### Alert levels (both pipelines)
 
@@ -421,12 +424,12 @@ Features include raw counts, rate features (denial\_rate, failure\_rate, reversa
 
 ## Metabase dashboards
 
-Four dashboards in total — three rule-based (defined in [`metabase/Dashboards/manifest.json`](metabase/Dashboards/manifest.json)) and one AI-specific (defined in [`metabase/Dashboards/ai_manifest.json`](metabase/Dashboards/ai_manifest.json)):
+Four dashboards in total — all defined in [`metabase/Dashboards/manifest.json`](metabase/Dashboards/manifest.json):
 
 1. **Anomaly monitoring** — anomaly score timeline, alert distribution, CRITICAL table, pending notifications *(queries `anomaly_results`)*
-2. **Transactions & operational data** — approved/denied per hour, auth codes 51/59, checkout, OpInt volume
+2. **CloudWalk — Transactions & operational data** — approved/denied per hour, auth codes 51/59, checkout, OpInt volume
 3. **Minute monitoring** — denied/failed/reversed per minute with 60-minute rolling averages
-4. **Anomalies with AI Detection** — AI ensemble score timeline, alert level distribution, anomalies by hour of day, score histogram, recent detections with IF/LOF/ensemble scores, model training history *(queries `ai_anomaly_results` — independent of rule-based dashboards)*
+4. **CloudWalk — Anomalies with AI Detection** — AI score timeline, per-model breakdowns (IF/LOF/OCSVM/Autoencoder), AI vs rule-based benchmarking, alert distribution, CRITICAL table, hourly counts *(queries `ai_anomaly_results`)*
 
 ---
 
@@ -449,10 +452,8 @@ Static analysis report: [`docs/cloudwalk_monitoring_report.pdf`](docs/cloudwalk_
 cloudwalk-monitoring/
 ├── docker-compose.yaml           # 7 services: postgres, pgadmin, metabase, api, 3 workers
 ├── Dockerfile.api                # FastAPI image (Python 3.11-slim)
-├── Dockerfile.worker             # Rule-based worker image
-├── Dockerfile.ai_ml              # AI/ML worker image (lean: sklearn, psycopg2 only)
-├── requirements.txt              # Python dependencies (API + rule-based workers)
-├── requirements.ai_ml.txt        # Python dependencies (worker-ai-ml)
+├── Dockerfile.worker             # Worker image (anomaly, AI/ML, monitoring)
+├── requirements.txt              # Python dependencies (all services)
 ├── .env.example                  # Template for SendGrid SMTP / optional vars
 ├── .gitignore
 │
@@ -496,10 +497,8 @@ cloudwalk-monitoring/
 │
 ├── metabase/
 │   ├── Dashboards/
-│   │   ├── manifest.json         # 3 rule-based dashboard definitions (17 cards)
-│   │   └── ai_manifest.json      # "Anomalies with AI Detection" (9 cards)
-│   ├── upload_dashboards.py      # Idempotent upload for rule-based dashboards
-│   └── upload_ai_dashboard.py    # Idempotent upload for AI dashboard (standalone)
+│   │   └── manifest.json         # All dashboard definitions (4 dashboards, 32 cards)
+│   └── upload_dashboards.py      # Idempotent upload (supports --dashboard filter)
 │
 ├── docs/
 │   ├── architecture.excalidraw   # System diagram (regenerate: py -3 docs/build_architecture_diagram.py)
@@ -531,7 +530,7 @@ docker compose logs -f
 docker compose logs -f anomaly_worker monitoring_worker monitoring_api
 
 # View AI/ML worker logs
-docker compose logs -f worker-ai-ml
+docker compose logs -f worker_ai_ml
 
 # Re-run init.sql on existing DB (PowerShell)
 Get-Content -Raw -Encoding UTF8 .\sql\init.sql | docker compose exec -T postgres_db psql -U admin -d cloudwalk_transactions
@@ -540,13 +539,13 @@ Get-Content -Raw -Encoding UTF8 .\sql\init.sql | docker compose exec -T postgres
 docker compose exec -T postgres_db psql -U admin -d cloudwalk_transactions < sql/init.sql
 
 # Rebuild only the AI/ML worker after code changes
-docker compose up -d --build --force-recreate worker-ai-ml
+docker compose up -d --build --force-recreate worker_ai_ml
 
-# Upload rule-based dashboards (idempotent — deletes and recreates if they already exist)
+# Upload all dashboards (idempotent — deletes and recreates if they already exist)
 METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_dashboards.py
 
-# Upload AI Detection dashboard (idempotent)
-METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_ai_dashboard.py
+# Upload only the AI dashboard (isolated, other dashboards untouched)
+METABASE_EMAIL=you@email.com METABASE_PASSWORD=your_pass python metabase/upload_dashboards.py --dashboard "CloudWalk — Anomalies with AI Detection"
 
 # Regenerate architecture artefacts
 py -3 docs/build_architecture_diagram.py
@@ -567,7 +566,7 @@ The `terraform/` directory contains a full Infrastructure-as-Code setup to deplo
 | **ECS Service — API** | `monitoring_api` | Fargate, behind ALB, auto-scaling (2-6 tasks) |
 | **ECS Service — Anomaly Worker** | `anomaly_worker` | Fargate, 1 task |
 | **ECS Service — Monitoring Worker** | `monitoring_worker` | Fargate, 1 task |
-| **ECS Service — AI/ML Worker** | `worker-ai-ml` | Fargate, 1 task |
+| **ECS Service — AI/ML Worker** | `worker_ai_ml` | Fargate, 1 task |
 | **ECS Service — Metabase** | `metabase` | Fargate, behind ALB on port 80 |
 | **ALB** | `localhost:8000` / `:3000` | Public load balancer (API on :8000, Metabase on :80) |
 | **ECR** | local images | Container registry for API and Worker images |

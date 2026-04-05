@@ -234,7 +234,7 @@ def build() -> list:
 
     # NEW: ai_anomaly_results
     add( 45, 265, 240, 35, "ai_anomaly_results",  bg="#b2dfdb", stroke="#00695c", font_size=12, bold=True)
-    elements.append(_group_label(295, 270, "← written by worker-ai-ml", 10, "#00695c"))
+    elements.append(_group_label(295, 270, "← written by worker_ai_ml", 10, "#00695c"))
 
     # Arrows: ingest → DB
     elements.extend(_arrow(110,  90, 110, 175, "COPY"))
@@ -256,18 +256,21 @@ def build() -> list:
              "monitoring_worker  (every 30s)\npoll unprocessed → notify\nconsole + email",
              bg="#fff3e0", font_size=12)
 
-    # worker-ai-ml (NEW — teal)
+    # worker_ai_ml (teal)
     ai = add(700, 320, 270, 85,
-             "worker-ai-ml  (every 120s)\nEnsembleAnomalyDetector\nIsolation Forest + LOF\ndata-driven thresholds",
+             "worker_ai_ml  (every 120s)\nEnsembleAIDetector\nIF + LOF + OCSVM + Autoencoder\ndata-driven thresholds",
              bg="#e0f2f1", stroke="#00695c", font_size=12)
 
     # anomaly_worker reads transactions, writes anomaly_results
     elements.extend(_arrow(700, 185, 175, 200, "SELECT"))
     elements.extend(_arrow(700, 200, 225, 255, "INSERT"))
 
-    # worker-ai-ml reads transactions+auth_codes, writes ai_anomaly_results
+    # worker_ai_ml reads transactions+auth_codes, writes ai_anomaly_results
     elements.extend(_arrow(700, 360, 290, 195, "SELECT", color="#00695c"))
     elements.extend(_arrow(700, 375, 285, 283, "INSERT", color="#00695c"))
+
+    # worker_ai_ml auto-syncs from anomaly_results
+    elements.extend(_arrow(225, 240, 700, 340, "auto-sync", color="#00695c"))
 
     # ─────────────────────────────────────────────────────────────────────
     # Layer 4 — FastAPI  (y 450-570)
