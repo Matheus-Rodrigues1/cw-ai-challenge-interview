@@ -1,19 +1,20 @@
 """
 AI/ML Anomaly Detection Worker  (worker_ai_ml)
 ===============================================
-Pure machine-learning anomaly detection — zero hardcoded thresholds or business rules.
+Pure machine-learning anomaly detection -- zero hardcoded thresholds or business rules.
 
 Architecture
 ------------
-  • Feature engineering   : per-minute pivot from transactions + auth-code diversity
+  * Feature engineering   : per-minute pivot from transactions + auth-code diversity
                             + cyclical time encoding (hour/day-of-week sin/cos)
-  • Models                : Isolation Forest  +  Local Outlier Factor (novelty=True)
-  • Ensemble              : equal-weight mean of min-max-normalised scores
-  • Adaptive thresholds   : WARNING = P75, CRITICAL = P90 of training-set ensemble scores
-                            (recalculated on every retrain — fully data-driven)
-  • Retraining            : every RETRAIN_EVERY_N_CYCLES cycles (default 5)
-  • Persistence           : results → ai_anomaly_results table in Postgres
-  • Auto-sync             : cross-references anomaly_results every cycle so the AI
+  * Models                : Isolation Forest + Local Outlier Factor (novelty=True)
+                            + One-Class SVM + Autoencoder (MLPRegressor reconstruction)
+  * Ensemble              : equal-weight mean of min-max-normalised scores (4 models)
+  * Adaptive thresholds   : WARNING = P75, CRITICAL = P90 of training-set ensemble scores
+                            (recalculated on every retrain -- fully data-driven)
+  * Retraining            : every RETRAIN_EVERY_N_CYCLES cycles (default 5)
+  * Persistence           : results -> ai_anomaly_results table in Postgres
+  * Auto-sync             : cross-references anomaly_results every cycle so the AI
                             dashboard stays in lock-step with rule-based detection
                             (manual inserts included)
 
@@ -35,7 +36,9 @@ import psycopg2
 from psycopg2.extras import execute_values
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
+from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import OneClassSVM
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,7 +65,7 @@ CONTAMINATION = float(os.getenv("CONTAMINATION", "0.05"))
 
 class EnsembleAnomalyDetector:
     """
-    Isolation Forest + Local Outlier Factor ensemble.
+    4-model ensemble: Isolation Forest + LOF + One-Class SVM + Autoencoder.
 
     WARNING / CRITICAL boundaries are derived from the P75 / P90 percentiles of
     the ensemble scores computed on the training set itself, so they adapt to
@@ -83,6 +86,12 @@ class EnsembleAnomalyDetector:
             novelty=True,
             n_jobs=-1,
         )
+        self.ocsvm_model = OneClassSVM(
+            kernel="rbf",
+            gamma="scale",
+            nu=contamination,
+        )
+        self.ae_model: Optional[MLPRegressor] = None
         self.scaler = StandardScaler()
         self.fitted = False
         self.model_version: Optional[str] = None
@@ -92,29 +101,55 @@ class EnsembleAnomalyDetector:
         self._if_neg_max: float = 1.0
         self._lof_neg_min: float = 0.0
         self._lof_neg_max: float = 1.0
+        self._ocsvm_neg_min: float = 0.0
+        self._ocsvm_neg_max: float = 1.0
+        self._ae_err_min: float = 0.0
+        self._ae_err_max: float = 1.0
 
         self.warning_threshold: float = 0.50
         self.critical_threshold: float = 0.75
+
+    def _build_autoencoder(self, n_features: int) -> MLPRegressor:
+        mid = max(n_features // 2, 4)
+        neck = max(n_features // 4, 2)
+        return MLPRegressor(
+            hidden_layer_sizes=(mid, neck, mid),
+            activation="relu",
+            solver="adam",
+            max_iter=300,
+            random_state=42,
+            early_stopping=True,
+            validation_fraction=0.1,
+        )
 
     # ── Fitting ────────────────────────────────────────────────────────────────
 
     def fit(self, X: np.ndarray) -> None:
         X_scaled = self.scaler.fit_transform(X)
+
         self.if_model.fit(X_scaled)
         self.lof_model.fit(X_scaled)
+        self.ocsvm_model.fit(X_scaled)
 
-        if_raw = self.if_model.score_samples(X_scaled)
-        lof_raw = self.lof_model.score_samples(X_scaled)
+        self.ae_model = self._build_autoencoder(X_scaled.shape[1])
+        self.ae_model.fit(X_scaled, X_scaled)
 
-        if_neg = -if_raw
-        lof_neg = -lof_raw
+        if_neg = -self.if_model.score_samples(X_scaled)
+        lof_neg = -self.lof_model.score_samples(X_scaled)
+        ocsvm_neg = -self.ocsvm_model.decision_function(X_scaled)
+        ae_errors = np.mean((X_scaled - self.ae_model.predict(X_scaled)) ** 2, axis=1)
 
         self._if_neg_min, self._if_neg_max = float(if_neg.min()), float(if_neg.max())
         self._lof_neg_min, self._lof_neg_max = float(lof_neg.min()), float(lof_neg.max())
+        self._ocsvm_neg_min, self._ocsvm_neg_max = float(ocsvm_neg.min()), float(ocsvm_neg.max())
+        self._ae_err_min, self._ae_err_max = float(ae_errors.min()), float(ae_errors.max())
 
         if_norm = self._norm(if_neg, self._if_neg_min, self._if_neg_max)
         lof_norm = self._norm(lof_neg, self._lof_neg_min, self._lof_neg_max)
-        ensemble = 0.5 * if_norm + 0.5 * lof_norm
+        ocsvm_norm = self._norm(ocsvm_neg, self._ocsvm_neg_min, self._ocsvm_neg_max)
+        ae_norm = self._norm(ae_errors, self._ae_err_min, self._ae_err_max)
+
+        ensemble = 0.25 * if_norm + 0.25 * lof_norm + 0.25 * ocsvm_norm + 0.25 * ae_norm
 
         self.warning_threshold = float(np.percentile(ensemble, 75))
         self.critical_threshold = float(np.percentile(ensemble, 90))
@@ -124,17 +159,19 @@ class EnsembleAnomalyDetector:
         self.num_training_samples = len(X)
 
         logger.info(
-            f"Model fitted | version={self.model_version} | samples={self.num_training_samples} "
-            f"| WARNING≥{self.warning_threshold:.3f} | CRITICAL≥{self.critical_threshold:.3f}"
+            "Model fitted | version=%s | samples=%d | WARNING>=%.3f | CRITICAL>=%.3f",
+            self.model_version, self.num_training_samples,
+            self.warning_threshold, self.critical_threshold,
         )
 
     # ── Prediction ─────────────────────────────────────────────────────────────
 
     def predict(self, X: np.ndarray) -> list[dict]:
         if not self.fitted:
-            raise RuntimeError("Model not fitted — call fit() first.")
+            raise RuntimeError("Model not fitted -- call fit() first.")
 
         X_scaled = self.scaler.transform(X)
+
         if_norm = self._norm(
             -self.if_model.score_samples(X_scaled),
             self._if_neg_min, self._if_neg_max,
@@ -143,7 +180,14 @@ class EnsembleAnomalyDetector:
             -self.lof_model.score_samples(X_scaled),
             self._lof_neg_min, self._lof_neg_max,
         )
-        ensemble = 0.5 * if_norm + 0.5 * lof_norm
+        ocsvm_norm = self._norm(
+            -self.ocsvm_model.decision_function(X_scaled),
+            self._ocsvm_neg_min, self._ocsvm_neg_max,
+        )
+        ae_errors = np.mean((X_scaled - self.ae_model.predict(X_scaled)) ** 2, axis=1)
+        ae_norm = self._norm(ae_errors, self._ae_err_min, self._ae_err_max)
+
+        ensemble = 0.25 * if_norm + 0.25 * lof_norm + 0.25 * ocsvm_norm + 0.25 * ae_norm
 
         results = []
         for i in range(len(X)):
@@ -162,6 +206,8 @@ class EnsembleAnomalyDetector:
                 {
                     "if_score": float(if_norm[i]),
                     "lof_score": float(lof_norm[i]),
+                    "ocsvm_score": float(ocsvm_norm[i]),
+                    "ae_score": float(ae_norm[i]),
                     "ensemble_score": score,
                     "is_anomaly": is_anomaly,
                     "alert_level": alert_level,
@@ -343,6 +389,8 @@ def _build_row(ts, pred: dict, feature_df, df_idx: int) -> tuple:
     model_scores = {
         "isolation_forest": round(pred["if_score"], 4),
         "lof": round(pred["lof_score"], 4),
+        "ocsvm": round(pred.get("ocsvm_score", 0.0), 4),
+        "autoencoder": round(pred.get("ae_score", 0.0), 4),
     }
     return (
         _to_dt(ts),

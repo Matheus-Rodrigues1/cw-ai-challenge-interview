@@ -260,7 +260,7 @@ def build_pdf() -> str:
     )
     pdf.bullet("- A rule-based hybrid detector (Z-Score + Isolation Forest + mandatory "
                "business rules) on a 60-second loop, writing results to anomaly_results.")
-    pdf.bullet("- A pure ML ensemble (Isolation Forest + Local Outlier Factor) on a "
+    pdf.bullet("- A pure ML ensemble (Isolation Forest + LOF + One-Class SVM + Autoencoder) on a "
                "120-second loop with data-driven thresholds, writing results to "
                "ai_anomaly_results. No hardcoded rules or fixed score cutoffs.")
     pdf.body_text(
@@ -545,7 +545,7 @@ def build_pdf() -> str:
     )
     pdf.body_text(
         "2b) worker_ai_ml starts -> reads transactions + auth_codes, builds 21-feature "
-        "matrix -> fits/retrains EnsembleAnomalyDetector (IF + LOF) -> "
+        "matrix -> fits/retrains EnsembleAnomalyDetector (IF + LOF + OCSVM + Autoencoder) -> "
         "evaluates new minutes -> INSERTs into ai_anomaly_results -> "
         "runs auto-sync (LEFT JOIN anomaly_results vs ai_anomaly_results to fill "
         "any gaps from manual inserts or timing differences) -> "

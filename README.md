@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/v1/transactions/evaluate \
 
 ### Step 6 - Upload Metabase dashboards (optional)
 
-After completing Metabase first-time setup at http://localhost:3000 and adding the `cloudwalk_transactions` database (Admin > Databases > Add database, host = `postgres_db`, port 5432, user/pass = `admin`/`admin`):
+After completing Metabase first-time setup at <http://localhost:3000> and adding the `cloudwalk_transactions` database (Admin > Databases > Add database, host = `postgres_db`, port 5432, user/pass = `admin`/`admin`):
 
 ```bash
 # Upload all dashboards (rule-based + AI)
@@ -402,7 +402,9 @@ Runs entirely independently — no hardcoded thresholds, no business rules:
 |-----------|--------------|
 | **Isolation Forest** | Tree-based outlier scoring; learns global anomalies |
 | **Local Outlier Factor** | Density-based; catches anomalies relative to local neighbours |
-| **Ensemble** | Equal-weight mean of min-max-normalised IF + LOF scores |
+| **One-Class SVM** | Kernel-based boundary; learns a decision frontier around normal data |
+| **Autoencoder** | MLPRegressor trained to reconstruct input; reconstruction error = anomaly signal |
+| **Ensemble** | Equal-weight mean of min-max-normalised IF + LOF + OCSVM + Autoencoder scores |
 
 Features include raw counts, rate features (denial\_rate, failure\_rate, reversal\_rate), **cyclical time encoding** (hour/day-of-week as sin/cos pairs), 30-min rolling stats, and auth-code diversity metrics.
 
@@ -478,7 +480,7 @@ cloudwalk-monitoring/
 │   └── workers/
 │       ├── anomaly_worker.py     # Rule-based loop: fit model, evaluate new minutes, write DB
 │       ├── monitoring_worker.py  # Notification loop: poll API, send alerts per channel
-│       └── ai_ml_worker.py       # Pure ML loop: IF + LOF ensemble, writes ai_anomaly_results
+│       └── ai_ml_worker.py       # Pure ML loop: IF + LOF + OCSVM + Autoencoder ensemble, writes ai_anomaly_results
 │
 ├── sql/
 │   ├── init.sql                  # Schema (incl. ai_anomaly_results) + COPY + monitoring views
