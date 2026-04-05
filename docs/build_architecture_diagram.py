@@ -4,8 +4,7 @@ Generate docs/architecture.excalidraw — the system architecture diagram
 for the CloudWalk Transaction Monitoring project.
 
 Usage:
-    py -3 docs/build_architecture_diagram.py
-    # or: python docs/build_architecture_diagram.py
+    python docs/build_architecture_diagram.py
 
 Open the output in https://excalidraw.com or the VS Code Excalidraw extension.
 """
@@ -22,12 +21,10 @@ OUT_FILE = os.path.join(OUT_DIR, "architecture.excalidraw")
 
 _id_counter = 0
 
-
 def _uid() -> str:
     global _id_counter
     _id_counter += 1
     return f"el_{_id_counter:04d}_{''.join(random.choices(string.ascii_lowercase, k=6))}"
-
 
 def _rect(
     x: int, y: int, w: int, h: int,
@@ -85,7 +82,6 @@ def _rect(
         "isDeleted": False,
     }
 
-
 def _arrow(
     x1: int, y1: int, x2: int, y2: int,
     label: str = "",
@@ -115,10 +111,8 @@ def _arrow(
     if label:
         mid_x = (x1 + x2) // 2
         mid_y = (y1 + y2) // 2
-        
         text_x = mid_x - 40
         text_y = mid_y - 14
-        
         if x1 == x2:
             text_x = mid_x + 8
             text_y = mid_y - 8
@@ -127,32 +121,36 @@ def _arrow(
         else:
             text_y = mid_y - 22
 
-        elements.append({
-            "id": _uid(),
-            "type": "text",
-            "x": text_x, "y": text_y,
-            "width": 80, "height": 16,
-            "angle": 0,
-            "strokeColor": color,
-            "backgroundColor": "#ffffff",
-            "fillStyle": "solid",
-            "strokeWidth": 1,
-            "roughness": 0,
-            "opacity": 100,
-            "text": label,
-            "fontSize": 12,
-            "fontFamily": 1,
-            "textAlign": "center",
-            "verticalAlign": "middle",
-            "containerId": None,
-            "originalText": label,
-            "roundness": None,
-            "boundElements": [],
-            "locked": False,
-            "isDeleted": False,
-        })
+        elements.append(_text_box(text_x, text_y, label, 12, color))
     return elements
 
+def _elbow_arrow(x: float, y: float, points: list, color: str = "#1e1e1e") -> dict:
+    min_x = min(p[0] for p in points)
+    max_x = max(p[0] for p in points)
+    min_y = min(p[1] for p in points)
+    max_y = max(p[1] for p in points)
+    return {
+        "id": _uid(),
+        "type": "arrow",
+        "x": x, "y": y,
+        "width": max_x - min_x,
+        "height": max_y - min_y,
+        "angle": 0,
+        "strokeColor": color,
+        "backgroundColor": "transparent",
+        "fillStyle": "solid",
+        "strokeWidth": 2,
+        "roughness": 0,
+        "opacity": 100,
+        "points": points,
+        "startArrowhead": None,
+        "endArrowhead": "arrow",
+        "roundness": None,
+        "elbowed": True,
+        "boundElements": [],
+        "locked": False,
+        "isDeleted": False,
+    }
 
 def _group_label(x: int, y: int, text: str, font_size: int = 14, color: str = "#868e96") -> dict:
     return {
@@ -181,6 +179,32 @@ def _group_label(x: int, y: int, text: str, font_size: int = 14, color: str = "#
         "isDeleted": False,
     }
 
+def _text_box(x: float, y: float, text: str, font_size: int = 12, color: str = "#1e1e1e", bg: str = "#ffffff") -> dict:
+    return {
+        "id": _uid(),
+        "type": "text",
+        "x": x, "y": y,
+        "width": len(text) * (font_size * 0.6),
+        "height": font_size + 4,
+        "angle": 0,
+        "strokeColor": color,
+        "backgroundColor": bg,
+        "fillStyle": "solid",
+        "strokeWidth": 1,
+        "roughness": 0,
+        "opacity": 100,
+        "text": text,
+        "fontSize": font_size,
+        "fontFamily": 1,
+        "textAlign": "center",
+        "verticalAlign": "middle",
+        "containerId": None,
+        "originalText": text,
+        "roundness": None,
+        "boundElements": [],
+        "locked": False,
+        "isDeleted": False,
+    }
 
 # ── Build diagram ────────────────────────────────────────────────────────
 
@@ -197,7 +221,7 @@ def build() -> list:
     # ─────────────────────────────────────────────────────────────────────
     elements.append({
         "id": _uid(), "type": "text",
-        "x": 200, "y": -40, "width": 600, "height": 30,
+        "x": 46.4, "y": -44.8, "width": 600, "height": 30,
         "angle": 0, "strokeColor": "#1e1e1e", "backgroundColor": "transparent",
         "fillStyle": "solid", "strokeWidth": 1, "roughness": 0, "opacity": 100,
         "text": "CloudWalk Transaction Monitoring — Architecture",
@@ -209,19 +233,19 @@ def build() -> list:
     # ─────────────────────────────────────────────────────────────────────
     # Layer 1 — Data ingestion  (y 10-95)
     # ─────────────────────────────────────────────────────────────────────
-    elements.append(_group_label(20, 10, "DATA INGESTION", 12))
+    elements.append(_group_label(44, 10, "DATA INGESTION", 12))
 
-    add(30,   35, 160, 55, "data/*.csv\n(5 CSV files)",         bg="#e8f5e9", font_size=13)
+    add(30,   35, 160, 55, "data/*.csv\n(5 CSV files)",        bg="#e8f5e9", font_size=13)
     add(230,  35, 180, 55, "init.sql\nCOPY + views",            bg="#e8f5e9", font_size=13)
     add(450,  35, 210, 55, "docker-init/\ncreate metabase_appdb", bg="#e8f5e9", font_size=13)
 
     # ─────────────────────────────────────────────────────────────────────
     # Layer 2 — PostgreSQL  (y 120-315)
     # ─────────────────────────────────────────────────────────────────────
-    elements.append(_group_label(20, 120, "DATABASE", 12))
+    elements.append(_group_label(27.8, 122.9, "DATABASE", 12))
 
-    add(30, 145, 640, 165, "", bg="#e3f2fd", font_size=14)          # outer box
-    elements.append(_group_label(40, 148, "PostgreSQL 15  :5432", 14, "#1565c0"))
+    add(24.4, 142.9, 640, 165, "", bg="#e3f2fd", font_size=14)          # outer box
+    elements.append(_group_label(128, 151.2, "PostgreSQL 15  :5432", 10.8, "#1565c0"))
 
     add( 45, 175, 130, 35, "transactions",       bg="#bbdefb", font_size=11)
     add(185, 175, 135, 35, "auth_codes",          bg="#bbdefb", font_size=11)
@@ -234,7 +258,7 @@ def build() -> list:
 
     # NEW: ai_anomaly_results
     add( 45, 265, 240, 35, "ai_anomaly_results",  bg="#b2dfdb", stroke="#00695c", font_size=12, bold=True)
-    elements.append(_group_label(295, 270, "← written by worker_ai_ml", 10, "#00695c"))
+    elements.append(_group_label(439, 360, "written by worker_ai_ml", 12, "#00695c"))
 
     # Arrows: ingest → DB
     elements.extend(_arrow(110,  90, 110, 175, "COPY"))
@@ -244,7 +268,7 @@ def build() -> list:
     # ─────────────────────────────────────────────────────────────────────
     # Layer 3 — Workers  (x 700-980, y 120-430)
     # ─────────────────────────────────────────────────────────────────────
-    elements.append(_group_label(700, 120, "WORKERS", 12))
+    elements.append(_group_label(794.4, 120, "WORKERS", 12))
 
     # anomaly_worker (rule-based)
     aw = add(700, 145, 270, 75,
@@ -261,16 +285,33 @@ def build() -> list:
              "worker_ai_ml  (every 120s)\nEnsembleAIDetector\nIF + LOF + OCSVM + Autoencoder\ndata-driven thresholds",
              bg="#e0f2f1", stroke="#00695c", font_size=12)
 
-    # anomaly_worker reads transactions, writes anomaly_results
-    elements.extend(_arrow(700, 185, 175, 200, "SELECT"))
-    elements.extend(_arrow(700, 200, 225, 255, "INSERT"))
+    # NOVO: Setas em formato Elbow conectando workers as tabelas do DB (contornando)
+    elements.append(_elbow_arrow(
+        713.6, 139.3,
+        [[0, 0], [0, -36.3], [-737.7, -36.3], [-737.7, 47.4], [-674.6, 47.4]],
+    ))
+    elements.append(_text_box(-80.3, 112.2, "SELECT"))
+
+    elements.append(_elbow_arrow(
+        736.8, 139.0,
+        [[0, 0], [0, -36.0], [-737.8, -36.0], [-737.8, 91.2], [-697.8, 91.2]]
+    ))
+    elements.append(_text_box(-71.9, 199.6, "INSERT"))
 
     # worker_ai_ml reads transactions+auth_codes, writes ai_anomaly_results
-    elements.extend(_arrow(700, 360, 290, 195, "SELECT", color="#00695c"))
-    elements.extend(_arrow(700, 375, 285, 283, "INSERT", color="#00695c"))
+    elements.extend(_arrow(700, 360, 290, 195))
+    elements.append(_text_box(499.8, 271.0, "SELECT", color="#00695c"))
+    
+    elements.extend(_arrow(700, 375, 285, 283))
+    elements.append(_text_box(513.4, 321.6, "INSERT", color="#00695c"))
 
-    # worker_ai_ml auto-syncs from anomaly_results
-    elements.extend(_arrow(225, 240, 700, 340, "auto-sync", color="#00695c"))
+    # NOVO: worker_ai_ml auto-syncs from anomaly_results (Elbow Arrow)
+    elements.append(_elbow_arrow(
+        39, 243,
+        [[0, 0], [-36, 0], [-36, 141.6], [655, 141.6]],
+        color="#00695c"
+    ))
+    elements.append(_text_box(432.4, 338.4, "auto-sync", color="#00695c"))
 
     # ─────────────────────────────────────────────────────────────────────
     # Layer 4 — FastAPI  (y 450-570)
@@ -278,7 +319,7 @@ def build() -> list:
     elements.append(_group_label(20, 440, "API", 12))
 
     add(30, 460, 640, 110, "", bg="#fce4ec", font_size=14)
-    elements.append(_group_label(40, 463, "FastAPI  monitoring_api  :8000", 14, "#c62828"))
+    elements.append(_group_label(123.5, 465.6, "FastAPI  monitoring_api  :8000", 14, "#c62828"))
 
     add( 45, 490, 180, 30, "POST /evaluate",           bg="#ffcdd2", font_size=11)
     add(235, 490, 190, 30, "GET /anomalies/*",          bg="#ffcdd2", font_size=11)
@@ -290,19 +331,19 @@ def build() -> list:
     add(535, 528, 125, 28, "GET /transactions",         bg="#ffcdd2", font_size=10)
 
     # monitoring_worker → API
-    elements.extend(_arrow(835, 420, 835, 460, ""))
-    elements.extend(_arrow(700, 420, 640, 505, "HTTP"))
+    elements.extend(_arrow(843, 417.6, 843, 457.6, ""))
+    elements.extend(_arrow(710.4, 402.4, 640, 505, "HTTP"))
 
     # API reads/writes DB
-    elements.extend(_arrow(135, 460, 135, 310, "query"))
-    elements.extend(_arrow(535, 460, 420, 310, "write"))
+    elements.extend(_arrow(143.8, 460, 143.8, 310, "query"))
+    elements.extend(_arrow(409.2, 454, 406.3, 311.6, "write"))
 
     # ─────────────────────────────────────────────────────────────────────
     # Layer 5 — Alert channels  (x 700, y 450-545)
     # ─────────────────────────────────────────────────────────────────────
     elements.append(_group_label(700, 440, "ALERT CHANNELS", 12))
 
-    add(700, 460, 130, 40, "Console log",       bg="#f5f5f5", font_size=12)
+    add(700.8, 459.1, 130, 40, "Console log",       bg="#f5f5f5", font_size=12)
     add(700, 510, 230, 42, "SMTP Email\n(SendGrid)", bg="#fce4ec", font_size=12)
 
     elements.extend(_arrow(660, 500, 700, 480, ""))
@@ -311,12 +352,12 @@ def build() -> list:
     # ─────────────────────────────────────────────────────────────────────
     # Layer 6 — Dashboards  (y 600-665)
     # ─────────────────────────────────────────────────────────────────────
-    elements.append(_group_label(20, 595, "DASHBOARDS", 12))
+    elements.append(_group_label(14.4, 595, "DASHBOARDS", 12))
 
     add( 30, 618, 220, 52, "Metabase  :3000\n4 dashboards",  bg="#ede7f6", font_size=13)
     add(270, 618, 170, 52, "pgAdmin  :8080",                 bg="#ede7f6", font_size=13)
 
-    elements.extend(_arrow(130, 618, 130, 310))
+    elements.extend(_arrow(105.2, 618, 105.2, 310))
     elements.extend(_arrow(355, 618, 355, 310))
 
     # ─────────────────────────────────────────────────────────────────────
@@ -342,11 +383,10 @@ def build() -> list:
         bg="#e0f2f1", stroke="#00695c", font_size=11)
 
     # Model callout connects to workers
-    elements.extend(_arrow(840, 595, 840, 405))
-    elements.extend(_arrow(840, 685, 840, 405, color="#00695c"))
+    elements.extend(_arrow(881.6, 596.6, 881.6, 406.6))
+    elements.extend(_arrow(959.8, 683, 959.8, 403, color="#00695c"))
 
     return elements
-
 
 def main():
     random.seed(42)
@@ -358,7 +398,8 @@ def main():
         "source": "build_architecture_diagram.py",
         "elements": elements,
         "appState": {
-            "gridSize": None,
+            "gridSize": 20,
+            "gridStep": 5,
             "viewBackgroundColor": "#ffffff",
         },
         "files": {},
@@ -370,7 +411,6 @@ def main():
     print(f"Excalidraw diagram generated: {OUT_FILE}")
     print(f"  {len(elements)} elements")
     print("Open in https://excalidraw.com or VS Code Excalidraw extension.")
-
 
 if __name__ == "__main__":
     main()
