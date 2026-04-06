@@ -125,7 +125,7 @@ This starts **7 containers**:
 | Container | Port | Purpose |
 |-----------|------|---------|
 | `postgres_container` | 5432 | PostgreSQL 15 with all data loaded via `init.sql` |
-| `pgadmin_container` | 8080 | pgAdmin web UI (login: `admin@admin.com` / `admin`) |
+| `pgadmin_container` | 8080 | pgAdmin web UI (login: `admin@admin.com` / `"your_pass"`) |
 | `metabase_container` | 3000 | Metabase dashboards (first-time setup required) |
 | `monitoring_api` | 8000 | FastAPI — evaluation endpoint + notification dispatch |
 | `anomaly_worker` | -- | Rule-based hybrid detection every 60s, writes `anomaly_results` |
@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/v1/transactions/evaluate \
 
 ### Step 6 - Upload Metabase dashboards (optional)
 
-After completing Metabase first-time setup at <http://localhost:3000> and adding the `cloudwalk_transactions` database (Admin > Databases > Add database, host = `postgres_db`, port 5432, user/pass = `admin`/`admin`):
+After completing Metabase first-time setup at <http://localhost:3000> and adding the `cloudwalk_transactions` database (Admin > Databases > Add database, host = `postgres_db`, port 5432, user/pass = `admin`/`"your_pass"`):
 
 ```bash
 # Upload all dashboards (rule-based + AI)
