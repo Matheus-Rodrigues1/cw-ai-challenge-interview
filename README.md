@@ -106,7 +106,7 @@ This is needed for local scripts (`inject_spike_anomaly.py`, `upload_dashboards.
 
 ### Step 3 - Configure email alerts (optional)
 
-Copy the example and fill your SendGrid SMTP credentials:
+Copy the example and fill your credentials:
 
 ```bash
 cp .env.example .env
