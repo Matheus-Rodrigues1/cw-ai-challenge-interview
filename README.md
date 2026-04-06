@@ -104,7 +104,7 @@ pip install -r requirements.txt
 
 This is needed for local scripts (`inject_spike_anomaly.py`, `upload_dashboards.py`, doc generation). Inside Docker the containers install dependencies automatically.
 
-### Step 3 - Configure email alerts (optional)
+### Step 3 - Configure credentials and email alerts 
 
 Copy the example and fill your credentials:
 
